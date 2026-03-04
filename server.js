@@ -29,16 +29,8 @@ app.get("/api/notion-events", async (req, res) => {
       },
       body: JSON.stringify({
         filter: {
-          and: [
-            {
-              property: "公開活動（打勾）",
-              checkbox: { equals: true }
-            },
-            {
-              property: "Date",
-              date: { on_or_after: new Date().toISOString().split("T")[0] }
-            }
-          ]
+          property: "公開活動（打勾）",
+          checkbox: { equals: true }
         },
         sorts: [{ property: "Date", direction: "ascending" }]
       }),
@@ -50,15 +42,26 @@ app.get("/api/notion-events", async (req, res) => {
       return res.status(500).json({ error: "Notion 回應異常", detail: data });
     }
 
-    // Format results into readable text for AI
+    const today = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Taipei" })).toISOString().split("T")[0];
+
+    // Format results, filter out expired events using end date if available
     const events = data.results.map(page => {
       const props = page.properties;
       const name = props["任務名稱"]?.title?.[0]?.plain_text || "（未命名）";
       const content = props["Content"]?.rich_text?.[0]?.plain_text || "";
-      const date = props["Date"]?.date?.start || "";
+      const dateStart = props["Date"]?.date?.start || "";
+      const dateEnd = props["Date"]?.date?.end || "";
       const dept = props["部門"]?.multi_select?.map(s => s.name).join(", ") || "";
-      return `【${name}】${date ? ` 日期：${date}` : ""}${dept ? ` 部門：${dept}` : ""}${content ? `\n內容：${content}` : ""}`;
-    }).join("\n\n");
+
+      // Use end date if available, otherwise start date
+      const relevantDate = dateEnd ? dateEnd.split("T")[0] : dateStart.split("T")[0];
+
+      // Skip if event has already ended
+      if (relevantDate && relevantDate < today) return null;
+
+      const dateDisplay = dateEnd ? `${dateStart} → ${dateEnd}` : dateStart;
+      return `【${name}】${dateDisplay ? ` 日期：${dateDisplay}` : ""}${dept ? ` 部門：${dept}` : ""}${content ? `\n內容：${content}` : ""}`;
+    }).filter(Boolean).join("\n\n");
 
     res.json({ events });
   } catch (e) {
