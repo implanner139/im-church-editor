@@ -9,6 +9,30 @@ app.use(express.json());
 
 app.use(express.static(path.join(__dirname, "dist")));
 
+const KNOWLEDGE_PAGE_ID = "30347bf610698082a40aecf4d280c117";
+
+// Helper: fetch Notion knowledge base page content
+async function getKnowledgeBase() {
+  const token = process.env.NOTION_TOKEN;
+  try {
+    const res = await fetch(`https://api.notion.com/v1/blocks/${KNOWLEDGE_PAGE_ID}/children?page_size=100`, {
+      headers: {
+        "Authorization": `Bearer ${token}`,
+        "Notion-Version": "2022-06-28",
+      }
+    });
+    const data = await res.json();
+    if (!data.results) return "";
+    return data.results.map(block => {
+      const type = block.type;
+      const richText = block[type]?.rich_text || [];
+      return richText.map(t => t.plain_text).join("");
+    }).filter(Boolean).join("\n");
+  } catch (e) {
+    return "";
+  }
+}
+
 // Helper: fetch Notion events
 async function getNotionEvents() {
   const token = process.env.NOTION_TOKEN;
@@ -48,12 +72,19 @@ async function getNotionEvents() {
 
 // GET /api/notion-events
 app.get("/api/notion-events", async (req, res) => {
-  if (!process.env.NOTION_TOKEN || !process.env.NOTION_DATABASE_ID) {
-    return res.status(500).json({ error: "Notion 環境變數未設定" });
-  }
   try {
     const events = await getNotionEvents();
     res.json({ events });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// GET /api/knowledge - for frontend to display
+app.get("/api/knowledge", async (req, res) => {
+  try {
+    const knowledge = await getKnowledgeBase();
+    res.json({ knowledge });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -64,7 +95,10 @@ app.post("/api/chat", async (req, res) => {
   const { message, platform = "Facebook" } = req.body;
   if (!message) return res.status(400).json({ error: "message is required" });
 
-  const notionEvents = await getNotionEvents();
+  const [notionEvents, knowledge] = await Promise.all([
+    getNotionEvents(),
+    getKnowledgeBase()
+  ]);
 
   const systemPrompt = `你是 iM行動教會 的社群小編，代表教會在 ${platform} 上與會友及訪客互動。
 
@@ -80,22 +114,8 @@ app.post("/api/chat", async (req, res) => {
 - 回覆長度：50-80 字
 - 每則回覆結尾換行後加上：— iM AI 小編 · 有任何疑問，同工隨時在 🙏
 
-【教會基本資訊】
-地址：台北市信義區松德路171號B1
-電話：02-2769-0177
-官網：https://www.im-church.org
-主日崇拜：每週日 10:00–11:30
-兒童主日學：幼幼班(1-3歲)、幼兒班(3-6歲)、國小班(6-12歲)、青少年(12-17歲)
-禱告會：每月第1、第3週 週三 20:00–21:00
-
-【常見問題】
-Q：沒有信仰可以來嗎？A：當然歡迎！iM 對所有人開放。
-Q：第一次去要準備什麼？A：什麼都不需要，穿著舒適來就好！
-Q：如何加入？A：填寫官網加入表單，或主日後找同工聊聊！
-Q：有兒童/青少年聚會嗎？A：有！每週日 10:00 同步進行。
-Q：如何報名受洗？A：請至官網報名或私訊我們。
-Q：錯過主日信息？A：官網有文字版，YouTube 也可以觀看！
-Q：奉獻收據何時寄出？A：114年度收據將於三月底-四月初寄出，有問題請週二~週五 10:00-18:00 來電 2769-0177 找會計小姐。
+【知識庫】
+${knowledge}
 ${notionEvents ? `\n【近期公開活動】\n${notionEvents}` : ""}`;
 
   try {
