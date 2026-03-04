@@ -32,7 +32,7 @@ async function getNotionEvents() {
     return data.results.map(page => {
       const props = page.properties;
       const name = props["任務名稱"]?.title?.[0]?.plain_text || "（未命名）";
-      const content = props["Content"]?.rich_text?.[0]?.plain_text || "";
+      const content = (props["Content"]?.rich_text || []).map(t => t.plain_text).join("") || "";
       const dateStart = props["Date"]?.date?.start || "";
       const dateEnd = props["Date"]?.date?.end || "";
       const dept = props["部門"]?.multi_select?.map(s => s.name).join(", ") || "";
