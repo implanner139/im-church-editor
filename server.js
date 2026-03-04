@@ -29,8 +29,16 @@ app.get("/api/notion-events", async (req, res) => {
       },
       body: JSON.stringify({
         filter: {
-          property: "公開活動（打勾）",
-          checkbox: { equals: true }
+          and: [
+            {
+              property: "公開活動（打勾）",
+              checkbox: { equals: true }
+            },
+            {
+              property: "Date",
+              date: { on_or_after: new Date().toISOString().split("T")[0] }
+            }
+          ]
         },
         sorts: [{ property: "Date", direction: "ascending" }]
       }),
