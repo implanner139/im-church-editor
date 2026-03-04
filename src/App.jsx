@@ -64,14 +64,12 @@ Q：錯過主日信息怎麼辦？
 A：官網有整理文字版信息精華，YouTube 頻道也可以觀看！`;
 
 export default function App() {
-  const [apiKey, setApiKey] = useState(import.meta.env.VITE_ANTHROPIC_KEY || "");
-  const [apiKeySaved, setApiKeySaved] = useState(!!import.meta.env.VITE_ANTHROPIC_KEY);
   const [activeTab, setActiveTab] = useState("test");
   const [persona, setPersona] = useState(iMPersona);
   const [knowledge, setKnowledge] = useState(iMKnowledge);
-  const [notionUrl, setNotionUrl] = useState("");
-  const [notionContent, setNotionContent] = useState("");
+  const [notionEvents, setNotionEvents] = useState("");
   const [loadingNotion, setLoadingNotion] = useState(false);
+  const [notionStatus, setNotionStatus] = useState(null);
   const [platform, setPlatform] = useState("Facebook 粉專");
   const [scenario, setScenario] = useState("貼文留言");
   const [userMessage, setUserMessage] = useState("");
@@ -85,11 +83,31 @@ export default function App() {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [chatHistory]);
 
+  // Auto-load Notion on mount
+  useEffect(() => {
+    fetchNotionEvents();
+  }, []);
+
+  const fetchNotionEvents = async () => {
+    setLoadingNotion(true);
+    setNotionStatus(null);
+    try {
+      const res = await fetch("/api/notion-events");
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      setNotionEvents(data.events);
+      setNotionStatus({ ok: true, msg: `✅ 已從 Notion 載入 ${data.events.split("【").length - 1} 筆公開活動` });
+    } catch (e) {
+      setNotionStatus({ ok: false, msg: `⚠️ Notion 載入失敗：${e.message}` });
+    }
+    setLoadingNotion(false);
+  };
+
   const buildSystemPrompt = () => `${persona}
 
 【知識庫】
 ${knowledge}
-${notionContent ? `\n【活動資訊（從 Notion 載入）】\n${notionContent}` : ""}
+${notionEvents ? `\n【近期活動（自動從 Notion 載入，已過濾非公開）】\n${notionEvents}` : ""}
 
 【當前情境】
 平台：${platform}
@@ -98,37 +116,8 @@ ${postContext ? `貼文/脈絡內容：${postContext}` : ""}
 
 請根據以上設定，以小編身份自然地回覆粉絲的訊息。只輸出回覆內容本身，不需要加說明或前言。`;
 
-  const fetchNotion = async () => {
-    if (!notionUrl.trim()) return;
-    setLoadingNotion(true);
-    try {
-      // Extract Notion page ID from URL
-      const match = notionUrl.match(/([a-f0-9]{32})/i);
-      if (!match) throw new Error("找不到 Notion 頁面 ID");
-      const pageId = match[1];
-      const res = await fetch(`https://notion-api.splitbee.io/v1/page/${pageId}`);
-      const data = await res.json();
-      // Flatten text content from Notion blocks
-      let text = "";
-      const extract = (blocks) => {
-        for (const key in blocks) {
-          const block = blocks[key];
-          if (block?.value?.properties?.title) {
-            text += block.value.properties.title.map(t => t[0]).join("") + "\n";
-          }
-        }
-      };
-      extract(data);
-      setNotionContent(text.trim() || "（頁面已載入，但內容為空）");
-    } catch (e) {
-      setNotionContent("⚠️ 載入失敗，請確認頁面是否公開");
-    }
-    setLoadingNotion(false);
-  };
-
   const sendMessage = async () => {
     if (!userMessage.trim() || loading) return;
-    if (!apiKey) { alert("請先在設定頁填入 API Key！"); return; }
     const msg = userMessage.trim();
     setUserMessage("");
     setChatHistory(prev => [...prev, { role: "user", content: msg }]);
@@ -142,7 +131,7 @@ ${postContext ? `貼文/脈絡內容：${postContext}` : ""}
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "x-api-key": apiKey,
+          "x-api-key": import.meta.env.VITE_ANTHROPIC_KEY || "",
           "anthropic-version": "2023-06-01",
           "anthropic-dangerous-direct-browser-access": "true",
         },
@@ -167,7 +156,6 @@ ${postContext ? `貼文/脈絡內容：${postContext}` : ""}
     { id: "test", label: "模擬測試", icon: "💬" },
     { id: "persona", label: "小編人設", icon: "🎭" },
     { id: "knowledge", label: "知識庫", icon: "📖" },
-    { id: "settings", label: "設定", icon: "⚙️" },
   ];
 
   const S = {
@@ -178,7 +166,6 @@ ${postContext ? `貼文/脈絡內容：${postContext}` : ""}
     textarea: { width: "100%", padding: 16, background: "#1a1830", border: "1px solid #2a2840", borderRadius: 12, color: "#e8e4d8", fontSize: 13, lineHeight: 1.8, resize: "vertical", outline: "none", fontFamily: "inherit", boxSizing: "border-box" },
     input: { width: "100%", padding: "10px 14px", borderRadius: 8, background: "#1a1830", border: "1px solid #2a2840", color: "#e8e4d8", fontSize: 13, outline: "none", boxSizing: "border-box" },
     btn: { padding: "10px 24px", borderRadius: 8, border: "none", cursor: "pointer", background: "linear-gradient(135deg, #ff6b6b, #ffa94d)", color: "#fff", fontWeight: 700, fontSize: 13 },
-    label: { fontSize: 12, color: "#7c7a99", marginBottom: 6, display: "block" },
     card: { background: "#1a1830", border: "1px solid #2a2840", borderRadius: 12, padding: "16px 20px", marginBottom: 12 },
   };
 
@@ -193,9 +180,13 @@ ${postContext ? `貼文/脈絡內容：${postContext}` : ""}
             <div style={{ fontSize: 10, color: "#7c7a99", letterSpacing: 1 }}>CHURCH SOCIAL MEDIA AUTO-REPLY</div>
           </div>
         </div>
-        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-          <div style={{ width: 8, height: 8, borderRadius: "50%", background: apiKeySaved ? "#22c55e" : "#ef4444" }}/>
-          <span style={{ fontSize: 11, color: apiKeySaved ? "#22c55e" : "#ef4444" }}>{apiKeySaved ? "已連線" : "未設定 API Key"}</span>
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          {notionStatus && (
+            <span style={{ fontSize: 11, color: notionStatus.ok ? "#22c55e" : "#f59e0b" }}>{notionStatus.msg}</span>
+          )}
+          <button onClick={fetchNotionEvents} disabled={loadingNotion} style={{ padding: "5px 12px", borderRadius: 6, border: "1px solid #2a2840", background: "transparent", color: "#7c7a99", fontSize: 11, cursor: "pointer" }}>
+            {loadingNotion ? "載入中..." : "🔄 更新活動"}
+          </button>
         </div>
       </div>
 
@@ -217,6 +208,14 @@ ${postContext ? `貼文/脈絡內容：${postContext}` : ""}
               <div style={{ fontSize: 17, fontWeight: 700, color: "#fff", marginBottom: 4 }}>💬 模擬回覆測試</div>
               <div style={{ fontSize: 12, color: "#7c7a99" }}>輸入粉絲的留言或私訊，看看 AI 小編怎麼回 ✨</div>
             </div>
+
+            {/* Notion status bar */}
+            {notionEvents && (
+              <div style={{ padding: "8px 14px", background: "#22c55e15", border: "1px solid #22c55e25", borderRadius: 8, marginBottom: 12, fontSize: 12, color: "#22c55e" }}>
+                🗓 已載入 Notion 活動資訊，AI 小編可回答近期活動問題
+              </div>
+            )}
+
             <div style={{ display: "flex", gap: 12, marginBottom: 10, flexWrap: "wrap" }}>
               {[{ label: "平台", value: platform, opts: PLATFORMS, set: setPlatform }, { label: "情境", value: scenario, opts: SCENARIOS, set: setScenario }].map(({ label, value, opts, set }) => (
                 <div key={label} style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -227,15 +226,15 @@ ${postContext ? `貼文/脈絡內容：${postContext}` : ""}
                 </div>
               ))}
             </div>
+
             <input placeholder="（選填）貼文內容或上下文說明..." value={postContext} onChange={e => setPostContext(e.target.value)} style={{ ...S.input, marginBottom: 10 }} />
 
-            {/* Chat window */}
             <div style={{ background: "#13122a", border: "1px solid #2a2840", borderRadius: 12, minHeight: 260, maxHeight: 360, overflowY: "auto", padding: 16, marginBottom: 10, display: "flex", flexDirection: "column", gap: 10 }}>
               {chatHistory.length === 0 && (
                 <div style={{ textAlign: "center", color: "#3a3858", paddingTop: 70 }}>
                   <div style={{ fontSize: 28, marginBottom: 8 }}>🙏</div>
                   <div style={{ fontSize: 13 }}>輸入粉絲留言，測試 AI 小編的回覆</div>
-                  <div style={{ fontSize: 11, marginTop: 6, color: "#2a2840" }}>例：「請問第一次來教會要注意什麼？」</div>
+                  <div style={{ fontSize: 11, marginTop: 6, color: "#2a2840" }}>例：「請問這週有什麼活動？」</div>
                 </div>
               )}
               {chatHistory.map((msg, i) => (
@@ -259,6 +258,7 @@ ${postContext ? `貼文/脈絡內容：${postContext}` : ""}
               )}
               <div ref={chatEndRef} />
             </div>
+
             <div style={{ display: "flex", gap: 8 }}>
               <input placeholder="輸入粉絲的留言或私訊..." value={userMessage} onChange={e => setUserMessage(e.target.value)} onKeyDown={e => e.key === "Enter" && sendMessage()}
                 style={{ flex: 1, padding: "12px 14px", borderRadius: 10, background: "#1a1830", border: "1px solid #2a2840", color: "#e8e4d8", fontSize: 13, outline: "none" }} />
@@ -287,67 +287,34 @@ ${postContext ? `貼文/脈絡內容：${postContext}` : ""}
           <div>
             <div style={{ marginBottom: 16 }}>
               <div style={{ fontSize: 17, fontWeight: 700, color: "#fff", marginBottom: 4 }}>📖 知識庫管理</div>
-              <div style={{ fontSize: 12, color: "#7c7a99" }}>填入教會資訊、活動規則、Q&A。也可以貼上 Notion 連結自動載入活動內容。</div>
+              <div style={{ fontSize: 12, color: "#7c7a99" }}>教會基本資訊與 Q&A。近期活動會自動從 Notion 載入。</div>
             </div>
 
-            {/* Notion 載入 */}
+            {/* Notion status */}
             <div style={S.card}>
-              <div style={{ fontSize: 13, fontWeight: 700, color: "#fff", marginBottom: 10 }}>🔗 從 Notion 載入活動資訊</div>
-              <div style={{ fontSize: 12, color: "#7c7a99", marginBottom: 10 }}>把 Notion 頁面設為「公開」後，貼上連結即可自動讀取內容。</div>
-              <div style={{ display: "flex", gap: 8 }}>
-                <input placeholder="貼上 Notion 頁面網址..." value={notionUrl} onChange={e => setNotionUrl(e.target.value)}
-                  style={{ flex: 1, padding: "8px 12px", borderRadius: 8, background: "#0f0e17", border: "1px solid #2a2840", color: "#e8e4d8", fontSize: 12, outline: "none" }} />
-                <button onClick={fetchNotion} disabled={loadingNotion} style={{ ...S.btn, padding: "8px 16px", fontSize: 12 }}>
-                  {loadingNotion ? "載入中..." : "載入"}
-                </button>
-              </div>
-              {notionContent && (
-                <div style={{ marginTop: 10, padding: "10px 12px", background: "#0f0e17", borderRadius: 8, fontSize: 12, color: "#9998b8", lineHeight: 1.7, maxHeight: 120, overflowY: "auto" }}>
-                  ✅ 已載入：{notionContent.slice(0, 200)}{notionContent.length > 200 ? "..." : ""}
+              <div style={{ fontSize: 13, fontWeight: 700, color: "#fff", marginBottom: 8 }}>🔗 Notion 活動資料庫</div>
+              {notionStatus ? (
+                <div style={{ fontSize: 12, color: notionStatus.ok ? "#22c55e" : "#f59e0b", marginBottom: 10 }}>{notionStatus.msg}</div>
+              ) : (
+                <div style={{ fontSize: 12, color: "#7c7a99", marginBottom: 10 }}>載入中...</div>
+              )}
+              {notionEvents && (
+                <div style={{ background: "#0f0e17", borderRadius: 8, padding: "10px 12px", fontSize: 12, color: "#9998b8", lineHeight: 1.7, maxHeight: 160, overflowY: "auto", marginBottom: 10 }}>
+                  {notionEvents}
                 </div>
               )}
+              <button onClick={fetchNotionEvents} disabled={loadingNotion} style={{ ...S.btn, padding: "7px 16px", fontSize: 12 }}>
+                {loadingNotion ? "載入中..." : "🔄 重新載入"}
+              </button>
+              <div style={{ marginTop: 10, fontSize: 11, color: "#5a5870", lineHeight: 1.7 }}>
+                💡 「非公開活動（打勾）」的項目會自動略過，不會讓 AI 小編知道。
+              </div>
             </div>
 
-            <label style={S.label}>教會基本知識庫</label>
-            <textarea value={knowledge} onChange={e => setKnowledge(e.target.value)} style={{ ...S.textarea, minHeight: 360 }} />
+            <textarea value={knowledge} onChange={e => setKnowledge(e.target.value)} style={{ ...S.textarea, minHeight: 340 }} />
             <button onClick={() => { setSaved(true); setTimeout(() => setSaved(false), 2000); }} style={{ ...S.btn, marginTop: 12, background: saved ? "#22c55e" : "linear-gradient(135deg, #ff6b6b, #ffa94d)" }}>
               {saved ? "✓ 已儲存" : "儲存知識庫"}
             </button>
-          </div>
-        )}
-
-        {/* 設定 */}
-        {activeTab === "settings" && (
-          <div>
-            <div style={{ marginBottom: 20 }}>
-              <div style={{ fontSize: 17, fontWeight: 700, color: "#fff", marginBottom: 4 }}>⚙️ 系統設定</div>
-              <div style={{ fontSize: 12, color: "#7c7a99" }}>填入你的 Anthropic API Key 才能讓 AI 小編運作。</div>
-            </div>
-            <div style={S.card}>
-              <label style={{ ...S.label, marginBottom: 8 }}>Anthropic API Key</label>
-              <input
-                type="password"
-                placeholder="sk-ant-api03-..."
-                value={apiKey}
-                onChange={e => setApiKey(e.target.value)}
-                style={{ ...S.input, marginBottom: 12, fontFamily: "monospace" }}
-              />
-              <button onClick={() => { setApiKeySaved(true); setSaved(true); setTimeout(() => setSaved(false), 2000); }}
-                style={{ ...S.btn, background: saved ? "#22c55e" : "linear-gradient(135deg, #ff6b6b, #ffa94d)" }}>
-                {saved ? "✓ 已儲存" : "儲存 Key"}
-              </button>
-              <div style={{ marginTop: 12, fontSize: 12, color: "#5a5870", lineHeight: 1.7 }}>
-                💡 申請網址：<a href="https://console.anthropic.com" target="_blank" style={{ color: "#ff9a62" }}>console.anthropic.com</a><br/>
-                Key 格式為 sk-ant-api03- 開頭的長字串。
-              </div>
-            </div>
-
-            <div style={{ ...S.card, background: "#ff9a6210", border: "1px dashed #ff9a6230" }}>
-              <div style={{ fontWeight: 700, color: "#ff9a62", marginBottom: 8, fontSize: 13 }}>🔐 安全提醒</div>
-              <div style={{ color: "#9998b8", fontSize: 12, lineHeight: 1.8 }}>
-                如果這個系統要給多人使用，建議把 API Key 設定在 Zeabur 的環境變數（VITE_ANTHROPIC_KEY），而不是在這裡手動填入。這樣 Key 不會暴露給使用者。
-              </div>
-            </div>
           </div>
         )}
       </div>
