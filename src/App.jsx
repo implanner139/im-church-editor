@@ -69,6 +69,8 @@ export default function App() {
   const [knowledge, setKnowledge] = useState(iMKnowledge);
   const [notionEvents, setNotionEvents] = useState("");
   const [loadingNotion, setLoadingNotion] = useState(false);
+  const [notionKnowledge, setNotionKnowledge] = useState("");
+  const [loadingKnowledge, setLoadingKnowledge] = useState(false);
   const [notionStatus, setNotionStatus] = useState(null);
   const [platform, setPlatform] = useState("Facebook 粉專");
   const [scenario, setScenario] = useState("貼文留言");
@@ -86,7 +88,18 @@ export default function App() {
   // Auto-load Notion on mount
   useEffect(() => {
     fetchNotionEvents();
+    fetchNotionKnowledge();
   }, []);
+
+  const fetchNotionKnowledge = async () => {
+    setLoadingKnowledge(true);
+    try {
+      const res = await fetch('/api/knowledge');
+      const data = await res.json();
+      if (data.knowledge) setNotionKnowledge(data.knowledge);
+    } catch (e) {}
+    setLoadingKnowledge(false);
+  };
 
   const fetchNotionEvents = async () => {
     setLoadingNotion(true);
@@ -311,10 +324,22 @@ ${postContext ? `貼文/脈絡內容：${postContext}` : ""}
               </div>
             </div>
 
-            <textarea value={knowledge} onChange={e => setKnowledge(e.target.value)} style={{ ...S.textarea, minHeight: 340 }} />
-            <button onClick={() => { setSaved(true); setTimeout(() => setSaved(false), 2000); }} style={{ ...S.btn, marginTop: 12, background: saved ? "#22c55e" : "linear-gradient(135deg, #ff6b6b, #ffa94d)" }}>
-              {saved ? "✓ 已儲存" : "儲存知識庫"}
-            </button>
+            <div style={{ marginTop: 16 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: "#fff", marginBottom: 8 }}>📝 Notion 知識庫內容</div>
+              <div style={{ fontSize: 11, color: "#7c7a99", marginBottom: 8 }}>知識庫內容從 Notion 頁面讀取，請直接在 Notion 更新。</div>
+              {loadingKnowledge ? (
+                <div style={{ fontSize: 12, color: "#7c7a99" }}>載入中...</div>
+              ) : notionKnowledge ? (
+                <div style={{ background: "#0f0e17", borderRadius: 8, padding: "12px 14px", fontSize: 12, color: "#9998b8", lineHeight: 1.8, maxHeight: 340, overflowY: "auto", whiteSpace: "pre-wrap" }}>
+                  {notionKnowledge}
+                </div>
+              ) : (
+                <div style={{ fontSize: 12, color: "#5a5870" }}>尚未載入知識庫內容</div>
+              )}
+              <button onClick={fetchNotionKnowledge} disabled={loadingKnowledge} style={{ ...S.btn, marginTop: 12, padding: "7px 16px", fontSize: 12 }}>
+                {loadingKnowledge ? "載入中..." : "🔄 重新載入知識庫"}
+              </button>
+            </div>
           </div>
         )}
       </div>
